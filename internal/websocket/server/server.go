@@ -1,59 +1,41 @@
+// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
-	"fmt"
-	"io"
+	"flag"
+	"log"
 	"net/http"
-
-	"golang.org/x/net/websocket"
 )
 
-type WSer struct {
-	Conns map[*websocket.Conn]bool
-}
+var addr = flag.String("addr", ":3000", "http service address")
 
-func NewWSer() *WSer {
-	return &WSer{
-		Conns: make(map[*websocket.Conn]bool),
+func serveHome(w http.ResponseWriter, r *http.Request) {
+	log.Println(r.URL)
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
 	}
-}
-
-func (s *WSer) HandleConnections(ws *websocket.Conn) {
-	defer func (){
-		fmt.Println("WebSocket disconnected:",ws.RemoteAddr())
-		ws.Close()
-	}()
-	fmt.Println("WebSocket Connected:",ws.RemoteAddr())
-	s.Conns[ws] = true
-
-}
-
-func (s *WSer) HandleMessages(ws *websocket.Conn) {
-	buff :=make ([]byte, 1024)
-	for {
-		n,err:= ws.Read(buff)
-		
-		if err!=nil{
-			if err==io.EOF {
-				fmt.Println("WebSocket closed by client:",ws.RemoteAddr())
-				break
-			}
-			fmt.Println("Error reading message:",err)
-			continue
-		}
-		message :=string (buff[:n])
-		fmt.Printf("Received message from %s: %s\n",ws.RemoteAddr(),message)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	http.ServeFile(w, r, "home.html")
 }
 
 func Start() {
-
-	wsServer := NewWSer()
-	http.Handle("/ws",websocket.Handler(wsServer.HandleConnections))
-	fmt.Println("WebSocket server started on :3000")
-	err := http.ListenAndServe(":3000", nil)
+	flag.Parse()
+	hub := newHub()
+	go hub.run()
+	http.HandleFunc("/", serveHome)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(hub, w, r)
+	})
+	print("ws server stated at :3000")
+	err := http.ListenAndServe(*addr, nil)
 	if err != nil {
-		fmt.Println("WebSocket server error:", err)
+		log.Fatal("ListenAndServe: ", err)
 	}
-
 }
